@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Beach Volley Academy — Gestione Finanziaria</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;600;700;800&family=Barlow:wght@300;400;500;600&display=swap');
 :root{--ocean:#0B4F6C;--ocean-light:#1A7DA0;--ocean-dark:#072D3E;--sun:#F4A01C;--sun-light:#FFC34D;--white:#FAFAF8;--bg:#F0EAE0;--text:#1A1A2E;--text-light:#5A6070;--green:#2D9B5A;--red:#C0392B;--purple:#7B3FA0;--sidebar-w:248px;}
@@ -122,6 +123,19 @@ input:focus,select:focus{outline:none;border-color:var(--ocean-light);}
 
 /* PDF hidden container */
 #pdf-container{display:none;}
+
+/* SETUP OVERLAY */
+#setup-overlay{position:fixed;inset:0;background:linear-gradient(135deg,var(--ocean-dark) 0%,#0a3d55 100%);z-index:9999;display:flex;align-items:center;justify-content:center;}
+#setup-overlay.done{display:none;}
+.setup-box{background:#fff;border-radius:16px;padding:36px;max-width:520px;width:90%;box-shadow:0 30px 80px rgba(0,0,0,0.4);}
+.setup-logo{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;color:var(--ocean);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+.setup-sub{font-size:12px;color:var(--text-light);margin-bottom:24px;letter-spacing:.5px;}
+.setup-step{background:rgba(11,79,108,0.05);border-radius:10px;padding:14px 16px;margin-bottom:12px;border-left:3px solid var(--ocean);}
+.setup-step-title{font-weight:700;font-size:13px;color:var(--ocean);margin-bottom:4px;}
+.setup-step-body{font-size:12px;color:var(--text-light);line-height:1.6;}
+.setup-step-body a{color:var(--ocean-light);font-weight:600;}
+.setup-input-group{margin-top:18px;display:flex;flex-direction:column;gap:10px;}
+.setup-err{color:var(--red);font-size:12px;font-weight:600;margin-top:8px;display:none;}
 </style>
 </head>
 <body>
@@ -140,6 +154,47 @@ input:focus,select:focus{outline:none;border-color:var(--ocean-light);}
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+
+<!-- SETUP SUPABASE -->
+<div id="setup-overlay">
+  <div class="setup-box">
+    <div class="setup-logo">🏐 Beach Volley Academy</div>
+    <div class="setup-sub">Configurazione Database — da fare una sola volta</div>
+
+    <div class="setup-step">
+      <div class="setup-step-title">① Crea account Supabase</div>
+      <div class="setup-step-body">Vai su <a href="https://supabase.com" target="_blank">supabase.com</a> → Sign Up con Google → crea un nuovo progetto (nome: <strong>bva</strong>, password qualsiasi, regione: <strong>West EU</strong>).</div>
+    </div>
+
+    <div class="setup-step">
+      <div class="setup-step-title">② Crea la tabella dati</div>
+      <div class="setup-step-body">Nel progetto → <strong>SQL Editor</strong> → incolla questo codice ed esegui:<br>
+        <code style="display:block;background:#f4f4f4;padding:8px;border-radius:6px;margin-top:6px;font-size:11px;word-break:break-all;">
+          CREATE TABLE bva_data (id TEXT PRIMARY KEY, payload JSONB, updated_at TIMESTAMPTZ DEFAULT now());
+        </code>
+      </div>
+    </div>
+
+    <div class="setup-step">
+      <div class="setup-step-title">③ Copia le credenziali</div>
+      <div class="setup-step-body">Vai su <strong>Project Settings → API</strong> e copia:<br>— <em>Project URL</em><br>— <em>anon public</em> key</div>
+    </div>
+
+    <div class="setup-input-group">
+      <div class="fgroup"><label>Project URL</label>
+        <input type="text" id="cfg-url" placeholder="https://xxxx.supabase.co"></div>
+      <div class="fgroup"><label>Anon Key</label>
+        <input type="text" id="cfg-key" placeholder="eyJhbGci..."></div>
+      <div class="setup-err" id="setup-err">Credenziali non valide. Controlla URL e chiave.</div>
+      <button class="btn btn-primary" style="margin-top:4px" onclick="setupSupabase()">✅ Connetti e Avvia</button>
+      <div style="text-align:center;margin-top:8px">
+        <span style="font-size:11px;color:var(--text-light)">Hai già configurato? </span>
+        <button class="btn btn-outline btn-sm" onclick="skipSetup()">Usa dati locali (offline)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- SIDEBAR -->
 <div id="sidebar">
@@ -163,6 +218,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean-light);}
   <div class="nav-item" onclick="backupJSON()"><span class="nav-icon">💾</span>Backup JSON</div>
   <div class="nav-item" onclick="document.getElementById('fi').click()"><span class="nav-icon">📂</span>Importa JSON</div>
   <input type="file" id="fi" accept=".json" style="display:none" onchange="importJSON(event)">
+  <div class="nav-item" onclick="showSetup()" style="color:rgba(255,255,255,0.35)"><span class="nav-icon">⚙️</span>Config Database</div>
   <div class="sidebar-footer">v2.0 · Dati salvati automaticamente</div>
 </div>
 
@@ -170,6 +226,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean-light);}
 <div id="main">
   <div class="topbar">
     <div class="topbar-title" id="page-title">📊 Dashboard</div>
+    <div id="sync-status" style="font-size:11px;color:var(--text-light);display:flex;align-items:center;gap:5px;"><span id="sync-dot" style="width:8px;height:8px;border-radius:50%;background:#ccc;display:inline-block"></span><span id="sync-label">Offline</span></div>
     <div class="topbar-actions">
       <select id="anno-sel" onchange="setAnno()" style="padding:5px 9px;border-radius:6px;border:1.5px solid rgba(0,0,0,.12);font-family:'Barlow',sans-serif;font-size:12px;">
         <option value="2023">2023</option><option value="2024">2024</option>
@@ -435,8 +492,110 @@ input:focus,select:focus{outline:none;border-color:var(--ocean-light);}
 // ===================== CONSTANTS =====================
 const MM=['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
 const TLBL={incasso_stripe:'Incasso Stripe',incasso_contanti:'Incasso Contanti',altro_incasso:'Altro Incasso',spesa_affitto:'Spesa Affitto',spesa_allenatori:'Spesa Allenatori',altra_spesa:'Altra Spesa',incasso:'Incasso',spesa:'Spesa',spesa_utenze:'Spesa Utenze',spesa_personale:'Spesa Personale'};
-const IVA_TOT=0.22; // IVA totale 22%
-const IVA=0.11;      // IVA da versare = 50% di quella totale
+const IVA_TOT=0.22;
+const IVA=0.11;
+
+// ===================== SUPABASE =====================
+let supaClient=null;
+const SB_URL_KEY='bva_sb_url';
+const SB_KEY_KEY='bva_sb_key';
+const ROW_ID='bva_main';
+
+function setSyncStatus(ok,label){
+  const dot=document.getElementById('sync-dot');
+  const lbl=document.getElementById('sync-label');
+  if(dot)dot.style.background=ok?'var(--green)':'#aaa';
+  if(lbl)lbl.textContent=label;
+}
+
+async function setupSupabase(){
+  const url=(document.getElementById('cfg-url')?.value||'').trim();
+  const key=(document.getElementById('cfg-key')?.value||'').trim();
+  const err=document.getElementById('setup-err');
+  if(!url||!key||!url.startsWith('https')){if(err)err.style.display='block';return;}
+  if(err)err.style.display='none';
+  try{
+    supaClient=window.supabase.createClient(url,key);
+    const {error}=await supaClient.from('bva_data').select('id').limit(1);
+    if(error)throw error;
+    localStorage.setItem(SB_URL_KEY,url);
+    localStorage.setItem(SB_KEY_KEY,key);
+    document.getElementById('setup-overlay').classList.add('done');
+    await loadFromSupabase();
+    startRealtimeSync();
+    setSyncStatus(true,'Connesso');
+    toast('Database connesso ✓');
+  }catch(e){
+    console.error(e);
+    if(err){err.textContent='Errore: '+e.message;err.style.display='block';}
+  }
+}
+
+function showSetup(){document.getElementById('setup-overlay').classList.remove('done');}
+
+function skipSetup(){
+  document.getElementById('setup-overlay').classList.add('done');
+  setSyncStatus(false,'Solo locale');
+  toast('Modalità offline — dati non condivisi',false);
+}
+
+async function loadFromSupabase(){
+  if(!supaClient)return;
+  try{
+    const {data,error}=await supaClient.from('bva_data').select('payload').eq('id',ROW_ID).single();
+    if(error&&error.code!=='PGRST116')throw error;
+    if(data&&data.payload){
+      DB=migrateDB(data.payload);
+      saveLocal();
+      renderAll();
+      toast('Dati sincronizzati ✓');
+    }
+  }catch(e){console.warn('Supabase load error',e);}
+}
+
+async function saveToSupabase(){
+  if(!supaClient)return;
+  try{
+    await supaClient.from('bva_data').upsert({id:ROW_ID,payload:DB,updated_at:new Date().toISOString()});
+    setSyncStatus(true,'Salvato ✓');
+    setTimeout(()=>setSyncStatus(true,'Connesso'),2000);
+  }catch(e){
+    console.warn('Supabase save error',e);
+    setSyncStatus(false,'Errore salvataggio');
+  }
+}
+
+function startRealtimeSync(){
+  if(!supaClient)return;
+  supaClient.channel('bva-changes')
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'bva_data',filter:'id=eq.'+ROW_ID},
+      payload=>{
+        if(payload.new&&payload.new.payload){
+          DB=migrateDB(payload.new.payload);
+          saveLocal();
+          renderAll();
+          setSyncStatus(true,'Aggiornato in tempo reale ✓');
+          setTimeout(()=>setSyncStatus(true,'Connesso'),3000);
+        }
+      })
+    .subscribe();
+}
+
+async function initSupabase(){
+  const url=localStorage.getItem(SB_URL_KEY);
+  const key=localStorage.getItem(SB_KEY_KEY);
+  if(!url||!key){return;}
+  try{
+    supaClient=window.supabase.createClient(url,key);
+    document.getElementById('setup-overlay').classList.add('done');
+    await loadFromSupabase();
+    startRealtimeSync();
+    setSyncStatus(true,'Connesso');
+  }catch(e){
+    console.warn('Supabase init error',e);
+    setSyncStatus(false,'Errore connessione');
+  }
+}
 
 // ===================== DB =====================
 let ANNO=2025;
@@ -482,10 +641,30 @@ function loadDB(){
   }
   return newDB();
 }
-function newDB(){return{scuola:{sm:8,em:6,voci:[]},estiva:{sm:5,em:8,voci:[]},iscrizioni:{voci:[]},merchandising:{voci:[]},scudetto:{voci:[]},sponsor:{voci:[]},palestra:{voci:[]},tornei:[]};}
-function save(){
-  // Salva sempre su bva_db (chiave originale) per massima compatibilità
+function newDB(){return{scuola:{sm:8,em:6,voci:[]},estiva:{sm:5,em:8,voci:[]},iscrizioni:{voci:[]},merchandising:{voci:[]},scudetto:{voci:[]},sponsor:{voci:[]},palestra:{voci:[]},tornei:[]};
+}
+function migrateDB(d){
+  if(!d||typeof d!=='object')return newDB();
+  if(!d.scuola)d.scuola={sm:8,em:6,voci:[]};
+  if(d.scuola.startMonth!==undefined&&d.scuola.sm===undefined){d.scuola.sm=d.scuola.startMonth;d.scuola.em=d.scuola.endMonth;}
+  if(d.scuola.sm===undefined)d.scuola.sm=8;if(d.scuola.em===undefined)d.scuola.em=6;
+  if(!d.estiva)d.estiva={sm:5,em:8,voci:[]};
+  if(d.estiva.startMonth!==undefined&&d.estiva.sm===undefined){d.estiva.sm=d.estiva.startMonth;d.estiva.em=d.estiva.endMonth;}
+  if(d.estiva.sm===undefined)d.estiva.sm=5;if(d.estiva.em===undefined)d.estiva.em=8;
+  if(!d.iscrizioni)d.iscrizioni={voci:[]};if(!d.merchandising)d.merchandising={voci:[]};
+  if(!d.scudetto)d.scudetto=d.finaleScudetto||{voci:[]};
+  if(!d.sponsor)d.sponsor={voci:[]};if(!d.palestra)d.palestra={voci:[]};if(!d.tornei)d.tornei=[];
+  if(d.sponsor.voci){d.sponsor.voci=d.sponsor.voci.map(v=>{
+    if(v.incasso===undefined)v.incasso=isInc(v.tipo)?(v.importo||0):0;
+    if(v.spesa===undefined)v.spesa=!isInc(v.tipo)?(v.importo||0):0;return v;});}
+  return d;
+}
+function saveLocal(){
   try{localStorage.setItem('bva_db',JSON.stringify(DB));}catch(e){}
+}
+function save(){
+  saveLocal();
+  saveToSupabase();
 }
 
 // ===================== UTILS =====================
@@ -1090,7 +1269,7 @@ document.getElementById('modal-overlay').addEventListener('click',function(e){if
 
 // ===================== JSON BACKUP =====================
 function backupJSON(){
-  const blob=new Blob([JSON.stringify({version:2,data:DB,anno:ANNO},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({version:2,data:DB,anno:ANNO,exported:new Date().toISOString()},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`BVA_backup_${ANNO}_${new Date().toISOString().slice(0,10)}.json`;a.click();
   toast('Backup esportato ✓');
@@ -1107,7 +1286,8 @@ function importJSON(e){
       if(!d.palestra)d.palestra={voci:[]};
       DB=d;
       save();renderAll();
-      toast('Dati importati ✓ ('+Object.keys(d).length+' sezioni)');
+      if(supaClient)toast('Dati importati e sincronizzati sul database ✓');
+      else toast('Dati importati ✓ ('+Object.keys(d).length+' sezioni)');
     }catch(err){toast('Errore importazione: '+err.message,false);}
   };
   r.readAsText(file);
@@ -1478,6 +1658,8 @@ document.getElementById('sc-sm') && (document.getElementById('sc-sm').innerHTML=
 document.getElementById('es-sm') && (document.getElementById('es-sm').innerHTML=mOpts(DB.estiva.sm,true),document.getElementById('es-em').innerHTML=mOpts(DB.estiva.em,true));
 document.getElementById('sp-mese') && (document.getElementById('sp-mese').innerHTML=mOpts(0,true));
 renderAll();
+// Avvia connessione Supabase (se già configurato)
+initSupabase();
 </script>
 </body>
 </html>
